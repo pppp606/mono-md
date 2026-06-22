@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mono MD</title>
+<style>
+html,body{height:100%;margin:0}
+body{color:#111;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif}
+.wrap{max-width:980px;margin:0 auto}
+#editor,#preview{
+  width:100%;
+  height:calc(100vh - 24px);
+  box-sizing:border-box;
+  padding:32px 24px;
+  border:none;
+  outline:none;
+  resize:none;
+  background:none;
+  color:inherit;
+  font:16px/1.9 ui-monospace,SFMono-Regular,Menlo,monospace
+}
+#editor::placeholder{color:#999}
+#preview{display:none;overflow:auto;white-space:normal}
+#footer{
+  position:fixed;
+  left:0;
+  right:0;
+  bottom:0;
+  height:24px;
+  max-width:980px;
+  margin:auto;
+  padding:0 24px;
+  box-sizing:border-box;
+  font:12px/24px ui-monospace,SFMono-Regular,Menlo,monospace;
+  opacity:.45;
+  text-align:right
+}
+h1,h2,h3{font-weight:700;margin:.8em 0 .4em}
+p{margin:.6em 0}
+pre{overflow:auto}
+code{font-family:inherit}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <textarea id="editor" spellcheck="false" placeholder="Cmd + N  New file&#10;Cmd + O  Open file&#10;Cmd + S  Save file&#10;Cmd + /  Markdown preview&#10;&#10;.md files support preview.&#10;Other files are edited as plain text."></textarea>
+  <div id="preview"></div>
+</div>
+<div id="footer">untitled</div>
+
+<script>
+const e = document.getElementById('editor')
+const p = document.getElementById('preview')
+const footer = document.getElementById('footer')
+
+let mode = 'raw'
+let handle = null
+let fileName = 'untitled'
+
+function setFileName(name){
+  fileName = name || 'untitled'
+  footer.textContent = fileName
+}
+
+function isMarkdownFile(){
+  return /\.md$/i.test(fileName) || /\.markdown$/i.test(fileName)
+}
+
+function esc(s){
+  return s.replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]))
+}
+
+function md(t){
+  let h = esc(t)
+  h = h
+    .replace(/^### (.*)$/gm,'<h3>$1</h3>')
+    .replace(/^## (.*)$/gm,'<h2>$1</h2>')
+    .replace(/^# (.*)$/gm,'<h1>$1</h1>')
+    .replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>')
+    .replace(/`([^`]+)`/g,'<code>$1</code>')
+    .replace(/^- (.*)$/gm,'• $1')
+    .replace(/\n/g,'<br>')
+  return h
+}
+
+function showRaw(){
+  p.style.display = 'none'
+  e.style.display = 'block'
+  mode = 'raw'
+  e.focus()
+}
+
+function togglePreview(){
+  if(!isMarkdownFile()) return
+
+  if(mode === 'raw'){
+    p.innerHTML = md(e.value)
+    e.style.display = 'none'
+    p.style.display = 'block'
+    mode = 'preview'
+  }else{
+    showRaw()
+  }
+}
+
+function newFile(){
+  handle = null
+  e.value = ''
+  setFileName('untitled')
+  if(mode === 'preview') showRaw()
+  else e.focus()
+}
+
+async function openFile(){
+  try{
+    if(!window.showOpenFilePicker){
+      alert('This browser does not support the File System Access API. Use Chrome or Edge.')
+      return
+    }
+
+    ;[handle] = await window.showOpenFilePicker({
+      multiple:false,
+      excludeAcceptAllOption:false
+    })
+
+    const file = await handle.getFile()
+    e.value = await file.text()
+    setFileName(file.name)
+
+    if(mode === 'preview') showRaw()
+    else e.focus()
+  }catch(err){
+    if(err && err.name !== 'AbortError') console.error(err)
+  }
+}
+
+async function saveFile(){
+  try{
+    if(!window.showSaveFilePicker){
+      alert('This browser does not support the File System Access API. Use Chrome or Edge.')
+      return
+    }
+
+    if(!handle){
+      handle = await window.showSaveFilePicker({
+        suggestedName:fileName === 'untitled' ? 'untitled.md' : fileName
+      })
+      if(handle && handle.name) setFileName(handle.name)
+    }
+
+    const w = await handle.createWritable()
+    await w.write(e.value)
+    await w.close()
+  }catch(err){
+    if(err && err.name !== 'AbortError') console.error(err)
+  }
+}
+
+window.addEventListener('keydown', async ev => {
+  const mod = ev.metaKey || ev.ctrlKey
+  if(!mod) return
+
+  const key = ev.key.toLowerCase()
+
+  if(key === 'n'){
+    ev.preventDefault()
+    ev.stopPropagation()
+    newFile()
+    return
+  }
+
+  if(key === 'o'){
+    ev.preventDefault()
+    ev.stopPropagation()
+    await openFile()
+    return
+  }
+
+  if(key === 's'){
+    ev.preventDefault()
+    ev.stopPropagation()
+    await saveFile()
+    return
+  }
+
+  if(key === '/' || ev.code === 'Slash'){
+    ev.preventDefault()
+    ev.stopPropagation()
+    togglePreview()
+    return
+  }
+}, true)
+
+e.focus()
+</script>
+</body>
+</html>
