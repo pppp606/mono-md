@@ -36,10 +36,29 @@ body{color:#111;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",sa
   opacity:.45;
   text-align:right
 }
-h1,h2,h3{font-weight:700;margin:.8em 0 .4em}
-p{margin:.6em 0}
-pre{overflow:auto}
-code{font-family:inherit}
+#preview h1,#preview h2,#preview h3,#preview h4,#preview h5,#preview h6{font-weight:700;margin:.8em 0 .4em;line-height:1.3}
+#preview h1{font-size:1.8em}
+#preview h2{font-size:1.5em}
+#preview h3{font-size:1.25em}
+#preview h4{font-size:1.1em}
+#preview h5{font-size:1em}
+#preview h6{font-size:.9em;color:#666}
+#preview p{margin:.6em 0}
+#preview a{color:inherit;text-decoration:underline}
+#preview strong{font-weight:700}
+#preview em{font-style:italic}
+#preview del{opacity:.55}
+#preview ul,#preview ol{margin:.6em 0;padding-left:1.6em}
+#preview li{margin:.2em 0}
+#preview blockquote{margin:.8em 0;padding:.2em 0 .2em 1em;border-left:3px solid #ddd;color:#555}
+#preview pre{margin:.8em 0;padding:12px 16px;background:#f5f5f5;border-radius:6px;overflow:auto}
+#preview code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.9em;background:#f0f0f0;padding:.1em .35em;border-radius:4px}
+#preview pre code{background:none;padding:0;font-size:1em}
+#preview hr{border:none;border-top:1px solid #ddd;margin:1.2em 0}
+#preview img{max-width:100%}
+#preview table{border-collapse:collapse;margin:.8em 0}
+#preview th,#preview td{border:1px solid #ddd;padding:.4em .8em}
+#preview th{background:#f5f5f5;font-weight:700}
 </style>
 </head>
 <body>
@@ -71,20 +90,199 @@ function isMarkdownFile(){
 }
 
 function esc(s){
-  return s.replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]))
+  return s.replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]))
 }
 
-function md(t){
-  let h = esc(t)
-  h = h
-    .replace(/^### (.*)$/gm,'<h3>$1</h3>')
-    .replace(/^## (.*)$/gm,'<h2>$1</h2>')
-    .replace(/^# (.*)$/gm,'<h1>$1</h1>')
-    .replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>')
-    .replace(/`([^`]+)`/g,'<code>$1</code>')
-    .replace(/^- (.*)$/gm,'• $1')
-    .replace(/\n/g,'<br>')
-  return h
+// Inline formatting: code spans, emphasis, strikethrough, links and images.
+// Code spans are pulled out first so their contents are never re-parsed.
+function inline(text){
+  const codes = []
+  text = text.replace(/(`+)([\s\S]+?)\1/g, (m, ticks, code) => {
+    codes.push('<code>' + esc(code.replace(/^ | $/g, '')) + '</code>')
+    return '\uE000C' + (codes.length - 1) + '\uE000'
+  })
+
+  text = esc(text)
+
+  text = text
+    .replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;([\s\S]*?)&quot;)?\)/g,
+      (m, alt, src, title) => `<img src="${src}" alt="${alt}"${title ? ` title="${title}"` : ''}>`)
+    .replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+&quot;([\s\S]*?)&quot;)?\)/g,
+      (m, txt, href, title) => `<a href="${href}"${title ? ` title="${title}"` : ''}>${txt}</a>`)
+    .replace(/\*\*\*([\s\S]+?)\*\*\*/g, '<strong><em>$1</em></strong>')
+    .replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/__([\s\S]+?)__/g, '<strong>$1</strong>')
+    .replace(/~~([\s\S]+?)~~/g, '<del>$1</del>')
+    .replace(/\*([^*\n]+?)\*/g, '<em>$1</em>')
+    .replace(/(^|[^\w])_([^_\n]+?)_(?=[^\w]|$)/g, '$1<em>$2</em>')
+
+  return text.replace(/\uE000C(\d+)\uE000/g, (m, i) => codes[+i])
+}
+
+function splitRow(row){
+  return row.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim())
+}
+
+function isDelimiterRow(row){
+  if(row.indexOf('-') === -1) return false
+  const cells = splitRow(row)
+  return cells.length > 0 && cells.every(c => /^:?-+:?$/.test(c))
+}
+
+function isTableStart(lines, i){
+  return i + 1 < lines.length &&
+    lines[i].indexOf('|') !== -1 &&
+    isDelimiterRow(lines[i + 1])
+}
+
+function isBlockStart(lines, i){
+  const l = lines[i]
+  return /^(```|~~~)/.test(l)
+    || /^ {0,3}#{1,6}\s/.test(l)
+    || /^ {0,3}>/.test(l)
+    || /^ {0,3}([-*_])([ \t]*\1){2,}[ \t]*$/.test(l)
+    || /^ {0,3}([-*+]|\d+[.)])\s+/.test(l)
+    || isTableStart(lines, i)
+}
+
+function parseTable(lines, i){
+  const align = splitRow(lines[i + 1]).map(c => {
+    const l = c.startsWith(':'), r = c.endsWith(':')
+    return l && r ? 'center' : r ? 'right' : l ? 'left' : ''
+  })
+  const cell = (c, idx, tag) =>
+    `<${tag}${align[idx] ? ` style="text-align:${align[idx]}"` : ''}>${inline(c)}</${tag}>`
+  const head = splitRow(lines[i]).map((c, idx) => cell(c, idx, 'th')).join('')
+  let html = '<table><thead><tr>' + head + '</tr></thead><tbody>'
+  let j = i + 2
+  while(j < lines.length && lines[j].indexOf('|') !== -1 && lines[j].trim() !== ''){
+    html += '<tr>' + splitRow(lines[j]).map((c, idx) => cell(c, idx, 'td')).join('') + '</tr>'
+    j++
+  }
+  return [html + '</tbody></table>', j]
+}
+
+function parseList(lines, start){
+  const re = /^(\s*)([-*+]|\d+[.)])(\s+)(.*)$/
+  const first = lines[start].match(re)
+  const baseIndent = first[1].length
+  const ordered = /\d/.test(first[2])
+  const bullet = first[2]
+  const textCol = first[1].length + first[2].length + first[3].length
+  // A list ends when the marker class changes (e.g. `-` -> `*`, or bullet -> number),
+  // so distinct lists separated only by a blank line stay separate.
+  const sameMarker = mk => (/\d/.test(mk)) === ordered && (ordered || mk === bullet)
+  const blank = l => /^\s*$/.test(l)
+  const indentOf = l => l.match(/^\s*/)[0].length
+  const items = []
+  let current = null
+  let i = start
+  const n = lines.length
+  while(i < n){
+    const line = lines[i]
+    if(blank(line)){
+      let k = i
+      while(k < n && blank(lines[k])) k++
+      const m = k < n ? lines[k].match(re) : null
+      const continues = k < n &&
+        ((m && m[1].length === baseIndent && sameMarker(m[2])) || indentOf(lines[k]) > baseIndent)
+      if(!continues) break
+      for(; i < k; i++) if(current) current.push('')
+      continue
+    }
+    const m = line.match(re)
+    const indent = indentOf(line)
+    if(m && m[1].length === baseIndent){
+      if(!sameMarker(m[2])) break
+      current = [m[4]]
+      items.push(current)
+      i++
+    }else if(current && indent > baseIndent){
+      current.push(line.slice(Math.min(indent, textCol)))
+      i++
+    }else{
+      break
+    }
+  }
+  let html = ordered ? '<ol>' : '<ul>'
+  for(const item of items){
+    while(item.length && item[item.length - 1] === '') item.pop()
+    const content = item.join('\n')
+    html += '<li>' + (content.indexOf('\n') === -1 ? inline(content) : md(content)) + '</li>'
+  }
+  return [html + (ordered ? '</ol>' : '</ul>'), i]
+}
+
+function md(src){
+  const lines = src.replace(/\r\n?/g, '\n').split('\n')
+  const n = lines.length
+  let html = ''
+  let i = 0
+
+  while(i < n){
+    const line = lines[i]
+
+    const fence = line.match(/^(```|~~~)(.*)$/)
+    if(fence){
+      const marker = fence[1]
+      const buf = []
+      i++
+      while(i < n && !lines[i].startsWith(marker)){ buf.push(lines[i]); i++ }
+      i++
+      html += '<pre><code>' + esc(buf.join('\n')) + '</code></pre>'
+      continue
+    }
+
+    if(/^\s*$/.test(line)){ i++; continue }
+
+    const h = line.match(/^ {0,3}(#{1,6})\s+(.*?)\s*#*\s*$/)
+    if(h){
+      const lvl = h[1].length
+      html += `<h${lvl}>` + inline(h[2]) + `</h${lvl}>`
+      i++
+      continue
+    }
+
+    if(/^ {0,3}([-*_])([ \t]*\1){2,}[ \t]*$/.test(line)){
+      html += '<hr>'
+      i++
+      continue
+    }
+
+    if(/^ {0,3}>/.test(line)){
+      const buf = []
+      while(i < n && /^ {0,3}>/.test(lines[i])){
+        buf.push(lines[i].replace(/^ {0,3}>\s?/, ''))
+        i++
+      }
+      html += '<blockquote>' + md(buf.join('\n')) + '</blockquote>'
+      continue
+    }
+
+    if(isTableStart(lines, i)){
+      const [t, next] = parseTable(lines, i)
+      html += t
+      i = next
+      continue
+    }
+
+    if(/^ {0,3}([-*+]|\d+[.)])\s+/.test(line)){
+      const [list, next] = parseList(lines, i)
+      html += list
+      i = next
+      continue
+    }
+
+    const buf = [line]
+    i++
+    while(i < n && !/^\s*$/.test(lines[i]) && !isBlockStart(lines, i)){
+      buf.push(lines[i])
+      i++
+    }
+    html += '<p>' + inline(buf.join('\n')).replace(/\n/g, '<br>') + '</p>'
+  }
+
+  return html
 }
 
 function showRaw(){
