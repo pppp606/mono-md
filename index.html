@@ -64,6 +64,9 @@ function setFileName(name){
 }
 
 function isMarkdownFile(){
+  // Unsaved buffers have no file extension yet, so treat them as Markdown
+  // to allow toggling the preview before the first save.
+  if(!handle) return true
   return /\.md$/i.test(fileName) || /\.markdown$/i.test(fileName)
 }
 
