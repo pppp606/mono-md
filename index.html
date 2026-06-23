@@ -63,7 +63,7 @@ body{color:#111;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",sa
 </head>
 <body>
 <div class="wrap">
-  <textarea id="editor" spellcheck="false" placeholder="Cmd + N  New file&#10;Cmd + O  Open file&#10;Cmd + S  Save file&#10;Cmd + /  Markdown preview&#10;&#10;.md files support preview.&#10;Other files are edited as plain text."></textarea>
+  <textarea id="editor" spellcheck="false" placeholder="Cmd + O  Open file&#10;Cmd + S  Save file&#10;Cmd + /  Markdown preview&#10;&#10;.md files support preview.&#10;Other files are edited as plain text."></textarea>
   <div id="preview"></div>
 </div>
 <div id="footer">untitled</div>
@@ -305,14 +305,6 @@ function togglePreview(){
   }
 }
 
-function newFile(){
-  handle = null
-  e.value = ''
-  setFileName('untitled')
-  if(mode === 'preview') showRaw()
-  else e.focus()
-}
-
 async function openFile(){
   try{
     if(!window.showOpenFilePicker){
@@ -363,13 +355,6 @@ window.addEventListener('keydown', async ev => {
   if(!mod) return
 
   const key = ev.key.toLowerCase()
-
-  if(key === 'n'){
-    ev.preventDefault()
-    ev.stopPropagation()
-    newFile()
-    return
-  }
 
   if(key === 'o'){
     ev.preventDefault()
