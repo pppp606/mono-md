@@ -20,7 +20,6 @@ Everything else is just plain text.
 
 ## Features
 
-* `Cmd + N` : New file
 * `Cmd + O` : Open local file
 * `Cmd + S` : Save file
 * `Cmd + /` : Toggle Markdown preview (`.md` only)
