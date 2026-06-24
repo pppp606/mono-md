@@ -21,6 +21,7 @@ Everything else is just plain text.
 ## Features
 
 * `Cmd + O` : Open local file
+* `Cmd + Shift + O` : Reopen a recent file
 * `Cmd + S` : Save file
 * `Cmd + /` : Toggle Markdown preview (`.md` only)
 
