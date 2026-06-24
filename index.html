@@ -59,23 +59,41 @@ body{color:#111;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",sa
 #preview table{border-collapse:collapse;margin:.8em 0}
 #preview th,#preview td{border:1px solid #ddd;padding:.4em .8em}
 #preview th{background:#f5f5f5;font-weight:700}
+#recent{display:none;position:fixed;inset:0;background:rgba(0,0,0,.15);z-index:10}
+#recentList{
+  max-width:560px;
+  margin:12vh auto 0;
+  background:#fff;
+  border-radius:10px;
+  box-shadow:0 10px 40px rgba(0,0,0,.2);
+  overflow:hidden;
+  font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace
+}
+.ritem{padding:10px 16px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ritem.sel{background:#f0f0f0}
+.rempty{padding:16px;color:#999}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <textarea id="editor" spellcheck="false" placeholder="Cmd + O  Open file&#10;Cmd + S  Save file&#10;Cmd + /  Markdown preview&#10;&#10;.md files support preview.&#10;Other files are edited as plain text."></textarea>
+  <textarea id="editor" spellcheck="false" placeholder="Cmd + O        Open file&#10;Cmd + Shift + O  Recent files&#10;Cmd + S        Save file&#10;Cmd + /        Markdown preview&#10;&#10;.md files support preview.&#10;Other files are edited as plain text."></textarea>
   <div id="preview"></div>
 </div>
 <div id="footer">untitled</div>
+<div id="recent"><div id="recentList"></div></div>
 
 <script>
 const e = document.getElementById('editor')
 const p = document.getElementById('preview')
 const footer = document.getElementById('footer')
+const recentBox = document.getElementById('recent')
+const recentList = document.getElementById('recentList')
 
 let mode = 'raw'
 let handle = null
 let fileName = 'untitled'
+let recentItems = []
+let recentSel = 0
 
 function setFileName(name){
   fileName = name || 'untitled'
@@ -320,6 +338,7 @@ async function openFile(){
     const file = await handle.getFile()
     e.value = await file.text()
     setFileName(file.name)
+    await addRecent(handle, file.name)
 
     if(mode === 'preview') showRaw()
     else e.focus()
@@ -339,7 +358,10 @@ async function saveFile(){
       handle = await window.showSaveFilePicker({
         suggestedName:fileName === 'untitled' ? 'untitled.md' : fileName
       })
-      if(handle && handle.name) setFileName(handle.name)
+      if(handle && handle.name){
+        setFileName(handle.name)
+        await addRecent(handle, handle.name)
+      }
     }
 
     const w = await handle.createWritable()
@@ -350,7 +372,135 @@ async function saveFile(){
   }
 }
 
+// --- Recent files ---
+// File handles are structured-cloneable, so they can be persisted in
+// IndexedDB (localStorage only stores strings). The whole list lives in a
+// single record keyed 'list' to keep ordering and trimming trivial.
+const DB_NAME = 'monomd'
+const STORE = 'recent'
+const MAX_RECENT = 10
+
+function idb(){
+  return new Promise((res, rej) => {
+    const req = indexedDB.open(DB_NAME, 1)
+    req.onupgradeneeded = () => req.result.createObjectStore(STORE, {keyPath:'key'})
+    req.onsuccess = () => res(req.result)
+    req.onerror = () => rej(req.error)
+  })
+}
+
+async function getRecents(){
+  try{
+    const db = await idb()
+    return await new Promise(res => {
+      const req = db.transaction(STORE, 'readonly').objectStore(STORE).get('list')
+      req.onsuccess = () => res(req.result ? req.result.items : [])
+      req.onerror = () => res([])
+    })
+  }catch{ return [] }
+}
+
+async function setRecents(items){
+  try{
+    const db = await idb()
+    await new Promise(res => {
+      const tx = db.transaction(STORE, 'readwrite')
+      tx.objectStore(STORE).put({key:'list', items})
+      tx.oncomplete = res
+      tx.onerror = res
+    })
+  }catch{}
+}
+
+// Add a handle to the front of the list, dropping any entry that points at
+// the same file (matched by isSameEntry, not name, so distinct files sharing
+// a name stay separate).
+async function addRecent(h, name){
+  if(!h) return
+  const items = await getRecents()
+  const kept = []
+  for(const it of items){
+    let same = false
+    try{ same = await it.handle.isSameEntry(h) }catch{}
+    if(!same) kept.push(it)
+  }
+  kept.unshift({handle:h, name, time:Date.now()})
+  await setRecents(kept.slice(0, MAX_RECENT))
+}
+
+function renderRecent(){
+  if(!recentItems.length){
+    recentList.innerHTML = '<div class="rempty">No recent files</div>'
+    return
+  }
+  recentList.innerHTML = recentItems.map((it, i) =>
+    `<div class="ritem${i === recentSel ? ' sel' : ''}" data-i="${i}">${esc(it.name)}</div>`).join('')
+}
+
+async function openRecent(){
+  recentItems = await getRecents()
+  recentSel = 0
+  renderRecent()
+  recentBox.style.display = 'block'
+}
+
+function closeRecent(){
+  recentBox.style.display = 'none'
+  if(mode === 'raw') e.focus()
+}
+
+async function openRecentItem(i){
+  const it = recentItems[i]
+  if(!it) return
+  try{
+    // Read permission does not survive a reload, so re-request it. This must
+    // run from a user gesture (keypress/click), which is always the case here.
+    let perm = await it.handle.queryPermission({mode:'read'})
+    if(perm !== 'granted') perm = await it.handle.requestPermission({mode:'read'})
+    if(perm !== 'granted') return
+
+    const file = await it.handle.getFile()
+    handle = it.handle
+    e.value = await file.text()
+    setFileName(file.name)
+    await addRecent(it.handle, file.name)
+
+    closeRecent()
+    if(mode === 'preview') showRaw()
+    else e.focus()
+  }catch(err){
+    if(err && err.name !== 'AbortError') console.error(err)
+    closeRecent()
+  }
+}
+
+recentList.addEventListener('click', ev => {
+  const el = ev.target.closest('.ritem')
+  if(el) openRecentItem(+el.dataset.i)
+})
+
+recentBox.addEventListener('mousedown', ev => {
+  if(ev.target === recentBox) closeRecent()
+})
+
 window.addEventListener('keydown', async ev => {
+  if(recentBox.style.display === 'block'){
+    if(ev.key === 'Escape'){ ev.preventDefault(); closeRecent(); return }
+    if(ev.key === 'ArrowDown'){
+      ev.preventDefault()
+      recentSel = Math.min(recentSel + 1, recentItems.length - 1)
+      renderRecent()
+      return
+    }
+    if(ev.key === 'ArrowUp'){
+      ev.preventDefault()
+      recentSel = Math.max(recentSel - 1, 0)
+      renderRecent()
+      return
+    }
+    if(ev.key === 'Enter'){ ev.preventDefault(); await openRecentItem(recentSel); return }
+  }
+
   const mod = ev.metaKey || ev.ctrlKey
   if(!mod) return
 
@@ -359,7 +509,8 @@ window.addEventListener('keydown', async ev => {
   if(key === 'o'){
     ev.preventDefault()
     ev.stopPropagation()
-    await openFile()
+    if(ev.shiftKey) await openRecent()
+    else await openFile()
     return
   }
 
