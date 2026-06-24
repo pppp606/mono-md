@@ -24,12 +24,9 @@ body{color:#111;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",sa
 #preview{display:none;overflow:auto;white-space:normal}
 #footer{
   position:fixed;
-  left:0;
   right:0;
   bottom:0;
   height:24px;
-  max-width:980px;
-  margin:auto;
   padding:0 24px;
   box-sizing:border-box;
   font:12px/24px ui-monospace,SFMono-Regular,Menlo,monospace;
@@ -92,13 +89,27 @@ const recentList = document.getElementById('recentList')
 let mode = 'raw'
 let handle = null
 let fileName = 'untitled'
+let dirty = false
 let recentItems = []
 let recentSel = 0
 
+function renderFooter(){
+  // A leading dot marks an unsaved buffer; it disappears once the file is saved.
+  footer.textContent = (dirty ? '● ' : '') + fileName
+}
+
 function setFileName(name){
   fileName = name || 'untitled'
-  footer.textContent = fileName
+  renderFooter()
 }
+
+function setDirty(v){
+  if(dirty === v) return
+  dirty = v
+  renderFooter()
+}
+
+e.addEventListener('input', () => setDirty(true))
 
 function isMarkdownFile(){
   // Unsaved buffers have no file extension yet, so treat them as Markdown
@@ -338,6 +349,7 @@ async function openFile(){
     const file = await handle.getFile()
     e.value = await file.text()
     setFileName(file.name)
+    setDirty(false)
     await addRecent(handle, file.name)
 
     if(mode === 'preview') showRaw()
@@ -367,6 +379,7 @@ async function saveFile(){
     const w = await handle.createWritable()
     await w.write(e.value)
     await w.close()
+    setDirty(false)
   }catch(err){
     if(err && err.name !== 'AbortError') console.error(err)
   }
@@ -463,6 +476,7 @@ async function openRecentItem(i){
     handle = it.handle
     e.value = await file.text()
     setFileName(file.name)
+    setDirty(false)
     await addRecent(it.handle, file.name)
 
     closeRecent()
@@ -528,6 +542,13 @@ window.addEventListener('keydown', async ev => {
     return
   }
 }, true)
+
+// Cmd+W / window close / reload cannot be intercepted directly, but
+// beforeunload lets the browser show its native confirmation when there are
+// unsaved edits. The message is fixed and no custom UI is possible by design.
+window.addEventListener('beforeunload', ev => {
+  if(dirty) ev.preventDefault()
+})
 
 e.focus()
 </script>
