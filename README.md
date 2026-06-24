@@ -25,6 +25,10 @@ Everything else is just plain text.
 * `Cmd + S` : Save file
 * `Cmd + /` : Toggle Markdown preview (`.md` only)
 
+Unsaved edits are marked with a `●` in the footer, and closing the tab or
+window while there are unsaved changes triggers the browser's confirmation
+prompt.
+
 ## File Types
 
 | Extension | Behavior        |
