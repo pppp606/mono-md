@@ -25,9 +25,10 @@ Everything else is just plain text.
 * `Cmd + S` : Save file
 * `Cmd + /` : Toggle Markdown preview (`.md` only)
 
-Unsaved edits are marked with a `●` in the footer, and closing the tab or
-window while there are unsaved changes triggers the browser's confirmation
-prompt.
+Unsaved edits are marked with a `●` in the footer. An untitled buffer is saved
+as a local draft and restored when you reopen the editor, so a quick note is
+never lost — and closing it shows no prompt. For a file with unsaved edits,
+closing the tab or window triggers the browser's confirmation prompt.
 
 ## File Types
 

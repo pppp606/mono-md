@@ -109,7 +109,36 @@ function setDirty(v){
   renderFooter()
 }
 
-e.addEventListener('input', () => setDirty(true))
+e.addEventListener('input', () => { setDirty(true); saveDraft() })
+
+// --- Draft of the untitled buffer ---
+// Only the scratch (untitled) buffer is persisted, so an unsaved note survives
+// a reload or accidental close. File-backed buffers are intentionally not kept
+// here: their source of truth is the file on disk.
+const DRAFT_KEY = 'monomd:draft'
+
+function saveDraft(){
+  try{
+    if(handle || e.value === '') localStorage.removeItem(DRAFT_KEY)
+    else localStorage.setItem(DRAFT_KEY, e.value)
+  }catch{}
+}
+
+function clearDraft(){
+  try{ localStorage.removeItem(DRAFT_KEY) }catch{}
+}
+
+function restoreDraft(){
+  // Runs only at startup, where the buffer is always untitled, so this never
+  // clobbers a file the user has open.
+  try{
+    const text = localStorage.getItem(DRAFT_KEY)
+    if(text){
+      e.value = text
+      setDirty(true)
+    }
+  }catch{}
+}
 
 function isMarkdownFile(){
   // Unsaved buffers have no file extension yet, so treat them as Markdown
@@ -350,6 +379,7 @@ async function openFile(){
     e.value = await file.text()
     setFileName(file.name)
     setDirty(false)
+    clearDraft()
     await addRecent(handle, file.name)
 
     if(mode === 'preview') showRaw()
@@ -380,6 +410,7 @@ async function saveFile(){
     await w.write(e.value)
     await w.close()
     setDirty(false)
+    clearDraft()
   }catch(err){
     if(err && err.name !== 'AbortError') console.error(err)
   }
@@ -477,6 +508,7 @@ async function openRecentItem(i){
     e.value = await file.text()
     setFileName(file.name)
     setDirty(false)
+    clearDraft()
     await addRecent(it.handle, file.name)
 
     closeRecent()
@@ -543,13 +575,16 @@ window.addEventListener('keydown', async ev => {
   }
 }, true)
 
-// Cmd+W / window close / reload cannot be intercepted directly, but
-// beforeunload lets the browser show its native confirmation when there are
-// unsaved edits. The message is fixed and no custom UI is possible by design.
+// Warn only for a file-backed buffer with unsaved edits — that is the one case
+// that cannot be recovered. An untitled buffer is persisted as a draft and
+// restored on reopen, so closing it loses nothing and needs no prompt.
+// (Cmd+W / window close / reload cannot be intercepted directly; beforeunload
+// only triggers the browser's fixed native confirmation, by design.)
 window.addEventListener('beforeunload', ev => {
-  if(dirty) ev.preventDefault()
+  if(dirty && handle) ev.preventDefault()
 })
 
+restoreDraft()
 e.focus()
 </script>
 </body>
