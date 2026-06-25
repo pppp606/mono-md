@@ -111,6 +111,45 @@ function setDirty(v){
 
 e.addEventListener('input', () => setDirty(true))
 
+// Tab moves focus by default; in the editor it should indent instead.
+e.addEventListener('keydown', ev => {
+  if(ev.key !== 'Tab' || ev.metaKey || ev.ctrlKey || ev.altKey) return
+  ev.preventDefault()
+  const s = e.selectionStart, end = e.selectionEnd
+  const multiline = e.value.slice(s, end).includes('\n')
+
+  // Single-cursor Tab just inserts a tab at the caret.
+  if(!multiline && !ev.shiftKey){
+    e.setRangeText('\t', s, end, 'end')
+    setDirty(true)
+    return
+  }
+
+  // Otherwise indent/outdent every line the selection touches.
+  const lineStart = e.value.lastIndexOf('\n', s - 1) + 1
+  const block = e.value.slice(lineStart, end)
+  const lines = block.split('\n')
+  let removedFirst = 0, removedTotal = 0
+  const out = lines.map((ln, i) => {
+    if(!ev.shiftKey) return '\t' + ln
+    const m = ln.match(/^(\t| {1,2})/) // drop one tab, or up to 2 leading spaces
+    const cut = m ? m[0].length : 0
+    if(i === 0) removedFirst = cut
+    removedTotal += cut
+    return ln.slice(cut)
+  }).join('\n')
+
+  e.setRangeText(out, lineStart, end, 'preserve')
+  if(ev.shiftKey){
+    e.selectionStart = Math.max(lineStart, s - removedFirst)
+    e.selectionEnd = end - removedTotal
+  }else{
+    e.selectionStart = s + 1
+    e.selectionEnd = end + lines.length
+  }
+  setDirty(true)
+})
+
 function isMarkdownFile(){
   // Unsaved buffers have no file extension yet, so treat them as Markdown
   // to allow toggling the preview before the first save.
