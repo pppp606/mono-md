@@ -47,6 +47,8 @@ body{color:#111;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",sa
 #preview del{opacity:.55}
 #preview ul,#preview ol{margin:.6em 0;padding-left:1.6em}
 #preview li{margin:.2em 0}
+#preview li.task{list-style:none;margin-left:-1.4em}
+#preview li.task input{margin-right:.4em;vertical-align:middle}
 #preview blockquote{margin:.8em 0;padding:.2em 0 .2em 1em;border-left:3px solid #ddd;color:#555}
 #preview pre{margin:.8em 0;padding:12px 16px;background:#f5f5f5;border-radius:6px;overflow:auto}
 #preview code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.9em;background:#f0f0f0;padding:.1em .35em;border-radius:4px}
@@ -147,6 +149,37 @@ e.addEventListener('keydown', ev => {
     e.selectionStart = s + 1
     e.selectionEnd = end + lines.length
   }
+  setDirty(true)
+})
+
+// Enter on a list line continues the list on the next line. Only the current
+// line is inspected, so there's no document-wide parsing.
+e.addEventListener('keydown', ev => {
+  if(ev.key !== 'Enter' || ev.shiftKey || ev.metaKey || ev.ctrlKey || ev.altKey) return
+  if(e.selectionStart !== e.selectionEnd) return // let a range selection behave normally
+
+  const s = e.selectionStart
+  const lineStart = e.value.lastIndexOf('\n', s - 1) + 1
+  let lineEnd = e.value.indexOf('\n', s)
+  if(lineEnd === -1) lineEnd = e.value.length
+  const line = e.value.slice(lineStart, lineEnd)
+
+  // indent | marker (-, *, +, or "1.") | spaces | optional "[ ]" checkbox
+  const m = line.match(/^(\s*)([-*+]|\d+\.)(\s+)(\[[ xX]\]\s+)?/)
+  if(!m) return
+  ev.preventDefault()
+
+  const [prefix, indent, marker, space] = m
+  // Empty item: pressing Enter clears the marker and exits the list.
+  if(line.slice(prefix.length).trim() === ''){
+    e.setRangeText('', lineStart, lineEnd, 'end')
+    setDirty(true)
+    return
+  }
+
+  const nextMarker = /^\d+\.$/.test(marker) ? (parseInt(marker, 10) + 1) + '.' : marker
+  const checkbox = m[4] ? '[ ] ' : ''
+  e.setRangeText('\n' + indent + nextMarker + space + checkbox, s, s, 'end')
   setDirty(true)
 })
 
@@ -275,8 +308,16 @@ function parseList(lines, start){
   let html = ordered ? '<ol>' : '<ul>'
   for(const item of items){
     while(item.length && item[item.length - 1] === '') item.pop()
-    const content = item.join('\n')
-    html += '<li>' + (content.indexOf('\n') === -1 ? inline(content) : md(content)) + '</li>'
+    let content = item.join('\n')
+    // `- [ ] task` / `- [x] task` render as a (read-only) checkbox.
+    const task = content.match(/^\[([ xX])\]\s+/)
+    let open = '<li>', box = ''
+    if(task){
+      open = '<li class="task">'
+      box = `<input type="checkbox" disabled${task[1].toLowerCase() === 'x' ? ' checked' : ''}> `
+      content = content.slice(task[0].length)
+    }
+    html += open + box + (content.indexOf('\n') === -1 ? inline(content) : md(content)) + '</li>'
   }
   return [html + (ordered ? '</ol>' : '</ul>'), i]
 }
