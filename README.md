@@ -21,13 +21,22 @@ Everything else is just plain text.
 ## Features
 
 * `Cmd + O` : Open local file
-* `Cmd + Shift + O` : Reopen a recent file
+* `Cmd + Shift + O` : Switch to a recent file or an unsaved draft
 * `Cmd + S` : Save file
 * `Cmd + /` : Toggle Markdown preview (`.md` only)
 
 Unsaved edits are marked with a `●` in the footer, and closing the tab or
 window while there are unsaved changes triggers the browser's confirmation
 prompt.
+
+### Drafts
+
+Unsaved buffers are autosaved as drafts in the browser (IndexedDB) so an
+accidentally closed tab is recoverable. `Cmd + Shift + O` lists drafts next to
+recent files, newest first, each titled by its first line. Opening anything
+from the picker preserves the document you were on, so it doubles as a way to
+switch between notes in a single tab. A draft is dropped once it is saved to a
+real file (`Cmd + S`) or emptied. Drafts never leave your machine.
 
 ## File Types
 
