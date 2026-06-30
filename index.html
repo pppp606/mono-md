@@ -106,9 +106,13 @@ function setFileName(name){
 }
 
 function setDirty(v){
-  if(dirty === v) return
-  dirty = v
-  renderFooter()
+  if(dirty !== v){
+    dirty = v
+    renderFooter()
+  }
+  // Every edit (typing, or the Tab/Enter helpers that call setDirty directly)
+  // schedules an autosave of the unsaved buffer to the drafts store.
+  if(v) scheduleDraft()
 }
 
 e.addEventListener('input', () => setDirty(true))
@@ -421,14 +425,17 @@ async function openFile(){
       return
     }
 
-    ;[handle] = await window.showOpenFilePicker({
+    const [picked] = await window.showOpenFilePicker({
       multiple:false,
       excludeAcceptAllOption:false
     })
 
+    await leaveBuffer() // preserve the document being switched away from
+    handle = picked
     const file = await handle.getFile()
     e.value = await file.text()
     setFileName(file.name)
+    setBufferId(null) // a freshly opened file has no unsaved draft of its own
     setDirty(false)
     await addRecent(handle, file.name)
 
@@ -460,6 +467,7 @@ async function saveFile(){
     await w.write(e.value)
     await w.close()
     setDirty(false)
+    await dropBufferDraft()
   }catch(err){
     if(err && err.name !== 'AbortError') console.error(err)
   }
@@ -471,12 +479,34 @@ async function saveFile(){
 // single record keyed 'list' to keep ordering and trimming trivial.
 const DB_NAME = 'monomd'
 const STORE = 'recent'
+const DRAFTS = 'drafts'
 const MAX_RECENT = 10
+const MAX_DRAFTS = 20
+
+// The id of the draft record the current unsaved buffer maps to (null when the
+// buffer is empty or holds a saved file). Keying drafts by the *buffer* — not
+// the tab — is what prevents duplicates: recovering a draft adopts its id, so
+// further edits overwrite the same record instead of spawning a copy. Mirrored
+// to sessionStorage so a reload re-adopts the same draft rather than orphaning
+// it. A fresh buffer mints a new id, so side-by-side tabs never collide.
+let bufferId = sessionStorage.draftId || null
+function newId(){
+  return Date.now().toString(36) + Math.random().toString(36).slice(2)
+}
+function setBufferId(id){
+  bufferId = id
+  if(id) sessionStorage.draftId = id
+  else delete sessionStorage.draftId
+}
 
 function idb(){
   return new Promise((res, rej) => {
-    const req = indexedDB.open(DB_NAME, 1)
-    req.onupgradeneeded = () => req.result.createObjectStore(STORE, {keyPath:'key'})
+    const req = indexedDB.open(DB_NAME, 2)
+    req.onupgradeneeded = () => {
+      const db = req.result
+      if(!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, {keyPath:'key'})
+      if(!db.objectStoreNames.contains(DRAFTS)) db.createObjectStore(DRAFTS, {keyPath:'id'})
+    }
     req.onsuccess = () => res(req.result)
     req.onerror = () => rej(req.error)
   })
@@ -521,17 +551,112 @@ async function addRecent(h, name){
   await setRecents(kept.slice(0, MAX_RECENT))
 }
 
+// --- Drafts (autosave) ---
+// Unlike recents, each draft is its own record keyed by its buffer id (see
+// bufferId), so independent buffers write independent slots. A draft holds the
+// buffer text plus its first line as a title, and exists only while there is
+// unsaved work to recover.
+async function getDrafts(){
+  try{
+    const db = await idb()
+    return await new Promise(res => {
+      const req = db.transaction(DRAFTS, 'readonly').objectStore(DRAFTS).getAll()
+      req.onsuccess = () => res(req.result || [])
+      req.onerror = () => res([])
+    })
+  }catch{ return [] }
+}
+
+async function putDraft(rec){
+  try{
+    const db = await idb()
+    await new Promise(res => {
+      const tx = db.transaction(DRAFTS, 'readwrite')
+      tx.objectStore(DRAFTS).put(rec)
+      tx.oncomplete = res
+      tx.onerror = res
+    })
+  }catch{}
+}
+
+async function deleteDraft(id){
+  try{
+    const db = await idb()
+    await new Promise(res => {
+      const tx = db.transaction(DRAFTS, 'readwrite')
+      tx.objectStore(DRAFTS).delete(id)
+      tx.oncomplete = res
+      tx.onerror = res
+    })
+  }catch{}
+}
+
+// Autosave: edits to an unsaved buffer are mirrored into this tab's draft after
+// a short idle, so content survives an accidentally-closed tab. The draft is
+// dropped the moment it no longer represents unsaved work — saved to a real
+// file (handled at the save/open sites) or emptied.
+let draftTimer = 0
+function scheduleDraft(){
+  clearTimeout(draftTimer)
+  draftTimer = setTimeout(persistDraft, 400)
+}
+
+async function persistDraft(){
+  const content = e.value
+  if(!dirty || !content.trim()){
+    if(bufferId) await deleteDraft(bufferId)
+    setBufferId(null)
+    return
+  }
+  if(!bufferId) setBufferId(newId())
+  const title = (content.split('\n').find(l => l.trim()) || 'untitled').trim().slice(0, 80)
+  await putDraft({id:bufferId, title, content, time:Date.now()})
+
+  // Keep only the most recent drafts so closed-and-forgotten tabs don't pile up.
+  const all = await getDrafts()
+  if(all.length > MAX_DRAFTS){
+    all.sort((a, b) => b.time - a.time)
+    for(const d of all.slice(MAX_DRAFTS)) if(d.id !== bufferId) await deleteDraft(d.id)
+  }
+}
+
+// The current buffer has just been written to disk: its draft is now redundant,
+// so drop it. (Only saving does this — switching documents keeps the draft.)
+async function dropBufferDraft(){
+  if(bufferId) await deleteDraft(bufferId)
+  setBufferId(null)
+}
+
+// Switching documents must not lose the one you're leaving. Flush its unsaved
+// content to a draft — kept, not deleted — before the next document overwrites
+// the buffer. This is what lets Cmd+Shift+O act as a document switcher: every
+// note you leave stays recoverable. persistDraft keeps bufferId pointing at the
+// flushed draft; the caller then resets it for the document being loaded.
+async function leaveBuffer(){
+  clearTimeout(draftTimer)
+  await persistDraft()
+}
+
 function renderRecent(){
   if(!recentItems.length){
     recentList.innerHTML = '<div class="rempty">No recent files</div>'
     return
   }
+  // Drafts carry the same leading dot the footer uses for an unsaved buffer.
   recentList.innerHTML = recentItems.map((it, i) =>
-    `<div class="ritem${i === recentSel ? ' sel' : ''}" data-i="${i}">${esc(it.name)}</div>`).join('')
+    `<div class="ritem${i === recentSel ? ' sel' : ''}" data-i="${i}">${it.type === 'draft' ? '● ' : ''}${esc(it.name)}</div>`).join('')
 }
 
 async function openRecent(){
-  recentItems = await getRecents()
+  const files = (await getRecents()).map(it =>
+    ({type:'file', handle:it.handle, name:it.name, time:it.time}))
+  // Hide only the draft that *is* the unsaved buffer in front of you. After a
+  // reload (buffer empty, dirty false) even your own pre-reload draft shows, so
+  // it can be recovered.
+  const drafts = (await getDrafts())
+    .filter(d => !(dirty && d.id === bufferId))
+    .map(d => ({type:'draft', id:d.id, name:d.title, content:d.content, time:d.time}))
+  recentItems = [...files, ...drafts].sort((a, b) => b.time - a.time)
   recentSel = 0
   renderRecent()
   recentBox.style.display = 'block'
@@ -542,9 +667,27 @@ function closeRecent(){
   if(mode === 'raw') e.focus()
 }
 
+// A recovered draft loads as an unsaved, untitled buffer and is removed from
+// the store: it now lives in this tab and will be re-persisted under this tab's
+// id, so no duplicate is left behind.
+async function openDraftItem(it){
+  await leaveBuffer() // preserve the document being switched away from
+  handle = null
+  e.value = it.content
+  setFileName('untitled')
+  // Adopt the draft's own id (don't mint a new one) so editing it updates the
+  // same record rather than leaving the original behind as a duplicate.
+  setBufferId(it.id)
+  setDirty(true)
+  closeRecent()
+  if(mode === 'preview') showRaw()
+  else e.focus()
+}
+
 async function openRecentItem(i){
   const it = recentItems[i]
   if(!it) return
+  if(it.type === 'draft'){ await openDraftItem(it); return }
   try{
     // Read permission does not survive a reload, so re-request it. This must
     // run from a user gesture (keypress/click), which is always the case here.
@@ -553,9 +696,11 @@ async function openRecentItem(i){
     if(perm !== 'granted') return
 
     const file = await it.handle.getFile()
+    await leaveBuffer() // preserve the document being switched away from
     handle = it.handle
     e.value = await file.text()
     setFileName(file.name)
+    setBufferId(null) // a freshly opened file has no unsaved draft of its own
     setDirty(false)
     await addRecent(it.handle, file.name)
 
@@ -628,6 +773,13 @@ window.addEventListener('keydown', async ev => {
 // unsaved edits. The message is fixed and no custom UI is possible by design.
 window.addEventListener('beforeunload', ev => {
   if(dirty) ev.preventDefault()
+})
+
+// Flush the draft when the tab is hidden — usually the last reliable moment
+// before it is closed — so the final keystrokes before the debounce fires
+// aren't lost. (beforeunload cannot await the async IndexedDB write.)
+document.addEventListener('visibilitychange', () => {
+  if(document.hidden) persistDraft()
 })
 
 e.focus()
