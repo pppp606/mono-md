@@ -2,6 +2,11 @@
 
 A minimal local text editor with Markdown preview.
 
+**[Try it in your browser](https://pppp606.github.io/mono-md/)** — nothing to
+install. The demo is `index.html` from `main`, served as-is: no build, no
+bundling, exactly the file in this repository. Requires Chrome or Edge (the
+editor uses the File System Access API).
+
 ## Philosophy
 
 Mono MD is intentionally small.
