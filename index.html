@@ -198,6 +198,13 @@ function esc(s){
   return s.replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]))
 }
 
+// Only allow http(s), mailto and relative URLs in links and images, so a
+// crafted document cannot run scripts through e.g. a javascript: href.
+function safeUrl(url){
+  const scheme = url.match(/^([a-z][a-z0-9+.-]*):/i)
+  return scheme && !/^(?:https?|mailto)$/i.test(scheme[1]) ? '#' : url
+}
+
 // Inline formatting: code spans, emphasis, strikethrough, links and images.
 // Code spans are pulled out first so their contents are never re-parsed.
 function inline(text){
@@ -211,9 +218,9 @@ function inline(text){
 
   text = text
     .replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;([\s\S]*?)&quot;)?\)/g,
-      (m, alt, src, title) => `<img src="${src}" alt="${alt}"${title ? ` title="${title}"` : ''}>`)
+      (m, alt, src, title) => `<img src="${safeUrl(src)}" alt="${alt}"${title ? ` title="${title}"` : ''}>`)
     .replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+&quot;([\s\S]*?)&quot;)?\)/g,
-      (m, txt, href, title) => `<a href="${href}"${title ? ` title="${title}"` : ''}>${txt}</a>`)
+      (m, txt, href, title) => `<a href="${safeUrl(href)}"${title ? ` title="${title}"` : ''}>${txt}</a>`)
     .replace(/\*\*\*([\s\S]+?)\*\*\*/g, '<strong><em>$1</em></strong>')
     .replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>')
     .replace(/__([\s\S]+?)__/g, '<strong>$1</strong>')
