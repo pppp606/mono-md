@@ -76,7 +76,7 @@ body{color:#111;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",sa
 </head>
 <body>
 <div class="wrap">
-  <textarea id="editor" spellcheck="false" placeholder="Cmd + O        Open file&#10;Cmd + Shift + O  Recent files&#10;Cmd + S        Save file&#10;Cmd + /        Markdown preview&#10;&#10;.md files support preview.&#10;Other files are edited as plain text."></textarea>
+  <textarea id="editor" spellcheck="false" placeholder="Cmd + O        Open file&#10;Cmd + Shift + O  Recent files&#10;Cmd + S        Save file&#10;Cmd + /        Markdown preview&#10;&#10;Drop a file here to open it.&#10;.md files support preview.&#10;Other files are edited as plain text."></textarea>
   <div id="preview"></div>
 </div>
 <div id="footer">untitled</div>
@@ -453,6 +453,41 @@ async function openFile(){
     if(err && err.name !== 'AbortError') console.error(err)
   }
 }
+
+// Drag & drop: dropping a file anywhere on the window opens it, same as
+// Cmd+O. DataTransferItem methods only work synchronously inside the drop
+// handler, so both the handle request and the fallback File are grabbed
+// before the first await.
+window.addEventListener('dragover', ev => ev.preventDefault())
+window.addEventListener('drop', async ev => {
+  ev.preventDefault()
+  const item = ev.dataTransfer && ev.dataTransfer.items && ev.dataTransfer.items[0]
+  if(!item || item.kind !== 'file') return
+  const handlePromise = item.getAsFileSystemHandle ? item.getAsFileSystemHandle() : null
+  const plainFile = item.getAsFile()
+  try{
+    const picked = handlePromise ? await handlePromise : null
+    if(picked && picked.kind !== 'file') return // ignore dropped folders
+    // Without a handle (no File System Access API) the content still opens;
+    // saving will fall back to Save As.
+    const file = picked ? await picked.getFile() : plainFile
+    if(!file) return
+    const text = await file.text()
+
+    await leaveBuffer() // preserve the document being switched away from
+    handle = picked
+    e.value = text
+    setFileName(file.name)
+    setBufferId(null) // a freshly opened file has no unsaved draft of its own
+    setDirty(false)
+    if(picked) await addRecent(picked, file.name)
+
+    if(mode === 'preview') showRaw()
+    else e.focus()
+  }catch(err){
+    if(err && err.name !== 'AbortError') console.error(err)
+  }
+})
 
 async function saveFile(){
   try{
