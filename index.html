@@ -161,6 +161,7 @@ e.addEventListener('keydown', ev => {
 // line is inspected, so there's no document-wide parsing.
 e.addEventListener('keydown', ev => {
   if(ev.key !== 'Enter' || ev.shiftKey || ev.metaKey || ev.ctrlKey || ev.altKey) return
+  if(ev.isComposing || ev.keyCode === 229) return // Enter confirming IME composition (229 covers Safari)
   if(e.selectionStart !== e.selectionEnd) return // let a range selection behave normally
 
   const s = e.selectionStart
