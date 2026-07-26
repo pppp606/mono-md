@@ -118,6 +118,16 @@ function setDirty(v){
 
 e.addEventListener('input', () => setDirty(true))
 
+// setRangeText() edits bypass the textarea's native undo stack, so programmatic
+// edits go through execCommand instead — deprecated, but the only API that keeps
+// undo/redo (Cmd+Z / Cmd+Shift+Z) working. It also fires 'input', so setDirty
+// is handled by the listener above.
+function editRange(text, start, end){
+  e.setSelectionRange(start, end)
+  if(text === '') document.execCommand('delete')
+  else document.execCommand('insertText', false, text)
+}
+
 // Tab moves focus by default; in the editor it should indent instead.
 e.addEventListener('keydown', ev => {
   if(ev.key !== 'Tab' || ev.metaKey || ev.ctrlKey || ev.altKey) return
@@ -127,8 +137,7 @@ e.addEventListener('keydown', ev => {
 
   // Single-cursor Tab just inserts a tab at the caret.
   if(!multiline && !ev.shiftKey){
-    e.setRangeText('\t', s, end, 'end')
-    setDirty(true)
+    editRange('\t', s, end)
     return
   }
 
@@ -146,7 +155,7 @@ e.addEventListener('keydown', ev => {
     return ln.slice(cut)
   }).join('\n')
 
-  e.setRangeText(out, lineStart, end, 'preserve')
+  editRange(out, lineStart, end)
   if(ev.shiftKey){
     e.selectionStart = Math.max(lineStart, s - removedFirst)
     e.selectionEnd = end - removedTotal
@@ -154,7 +163,6 @@ e.addEventListener('keydown', ev => {
     e.selectionStart = s + 1
     e.selectionEnd = end + lines.length
   }
-  setDirty(true)
 })
 
 // Enter on a list line continues the list on the next line. Only the current
@@ -178,15 +186,13 @@ e.addEventListener('keydown', ev => {
   const [prefix, indent, marker, space] = m
   // Empty item: pressing Enter clears the marker and exits the list.
   if(line.slice(prefix.length).trim() === ''){
-    e.setRangeText('', lineStart, lineEnd, 'end')
-    setDirty(true)
+    editRange('', lineStart, lineEnd)
     return
   }
 
   const nextMarker = /^\d+\.$/.test(marker) ? (parseInt(marker, 10) + 1) + '.' : marker
   const checkbox = m[4] ? '[ ] ' : ''
-  e.setRangeText('\n' + indent + nextMarker + space + checkbox, s, s, 'end')
-  setDirty(true)
+  editRange('\n' + indent + nextMarker + space + checkbox, s, s)
 })
 
 function isMarkdownFile(){
