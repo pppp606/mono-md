@@ -72,6 +72,13 @@ body{color:#111;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",sa
 .ritem{padding:10px 16px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ritem.sel{background:#f0f0f0}
 .rempty{padding:16px;color:#999}
+@media print{
+  html,body{height:auto}
+  #editor,#preview{height:auto;overflow:visible;padding:0}
+  #preview pre{white-space:pre-wrap;overflow-wrap:anywhere;overflow:visible}
+  #preview h1,#preview h2,#preview h3,#preview h4,#preview h5,#preview h6{break-after:avoid}
+  #footer,#recent{display:none}
+}
 </style>
 </head>
 <body>
