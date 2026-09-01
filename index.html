@@ -74,10 +74,12 @@ body{color:#111;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",sa
 .rempty{padding:16px;color:#999}
 @media print{
   html,body{height:auto}
-  #editor,#preview{height:auto;overflow:visible;padding:0}
-  #preview pre{white-space:pre-wrap;overflow-wrap:anywhere;overflow:visible}
+  #preview{height:auto;overflow:visible;padding:0;overflow-wrap:anywhere;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  #preview pre{white-space:pre-wrap;overflow:visible}
   #preview h1,#preview h2,#preview h3,#preview h4,#preview h5,#preview h6{break-after:avoid}
-  #footer,#recent{display:none}
+  #preview pre,#preview blockquote,#preview tr{break-inside:avoid}
+  #footer{display:none}
+  #recent{display:none !important}
 }
 </style>
 </head>
